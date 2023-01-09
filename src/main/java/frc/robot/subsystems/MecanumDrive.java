@@ -1,8 +1,9 @@
 package frc.robot.subsystems;
-
 import com.ctre.phoenix.motorcontrol.InvertType;
 import com.ctre.phoenix.motorcontrol.can.WPI_TalonFX;
 import com.ctre.phoenix.sensors.WPI_Pigeon2;
+import com.pathplanner.lib.PathPlannerTrajectory;
+import com.pathplanner.lib.commands.PPMecanumControllerCommand;
 
 import edu.wpi.first.math.Pair;
 import edu.wpi.first.math.controller.PIDController;
@@ -15,7 +16,9 @@ import edu.wpi.first.math.kinematics.MecanumDriveKinematics;
 import edu.wpi.first.math.kinematics.MecanumDriveWheelPositions;
 import edu.wpi.first.math.kinematics.MecanumDriveWheelSpeeds;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.InstantCommand;
+import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 
 import frc.robot.Vision;
@@ -124,6 +127,10 @@ public class MecanumDrive extends SubsystemBase{
         );
     }
 
+    public Pose2d getPose(){
+        return m_PoseEstimator.getEstimatedPosition();
+    }
+
     //Set wheel speeds in meters/s
     public void setSpeeds(MecanumDriveWheelSpeeds speeds){
         final double frontLeftFeedforward = m_Feedforward.calculate(speeds.frontLeftMetersPerSecond);
@@ -170,6 +177,10 @@ public class MecanumDrive extends SubsystemBase{
 
     }
 
+    public void resetPose(Pose2d pose){
+        m_PoseEstimator.resetPosition(m_Gyro.getRotation2d(), getWheelPositions(), pose);
+    }
+
     public void updatePoseEstimation(){
         m_PoseEstimator.update(m_Gyro.getRotation2d(), getWheelPositions());
 
@@ -189,14 +200,31 @@ public class MecanumDrive extends SubsystemBase{
 
     }
 
+    public Command followTrajectoryCommand(PathPlannerTrajectory traj, boolean isFirstPath) {
+        return new SequentialCommandGroup(
+            new InstantCommand(() -> {
+              // Reset pose estimation for the first path you run during auto
+              if(isFirstPath){
+                  this.resetPose(traj.getInitialHolonomicPose());
+              }
+            }),
+            new PPMecanumControllerCommand(
+                traj, 
+                this::getPose, // Pose supplier
+                m_Kinematics,
+                new PIDController(0, 0, 0), // X controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
+                new PIDController(0, 0, 0), // Y controller (usually the same values as X controller)
+                new PIDController(0, 0, 0), // Rotation controller. Tune these values for your robot. Leaving them 0 will only use feedforwards.
+                6.0, // Max wheel velocity meters per second
+                this::setSpeeds, // MecanumDriveWheelSpeeds consumer
+                this // Requires this drive subsystem
+            )
+        );
+    }
+
     @Override
     public void periodic() {
         updatePoseEstimation();
-
-        SmartDashboard.putNumber("Front Left", m_FrontLeft.getMotorOutputVoltage());
-        SmartDashboard.putNumber("Front Right", m_FrontRight.getMotorOutputVoltage() * -1);
-        SmartDashboard.putNumber("Back Left", m_BackLeft.getMotorOutputVoltage());
-        SmartDashboard.putNumber("Back Right", m_BackRight.getMotorOutputVoltage() * -1);
     }
 
 }
